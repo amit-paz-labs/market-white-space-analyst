@@ -47,7 +47,8 @@ Founders, product strategists, and investors lack a systematic, repeatable way t
 
 - **Primary source:** G2 (categories, products, ratings, review counts, vendor attributes).
 - **Secondary sources (best effort):** Gartner market guides / Magic Quadrant categories, IDC market taxonomy, optional Capterra / Forrester / Crunchbase / government and regulatory feeds, news and job-posting signals.
-- **Data access:** Must use licensed API access or permitted data feeds. Where a source offers no API and its terms prohibit scraping, the system uses licensed exports or manual uploads (see §9, Compliance). Gartner and IDC data are paywalled; the integration model is *import-based* (CSV/XLSX upload or licensed API) rather than crawling.
+- **Data access:** G2 actively protects itself against automated scraping (bot detection, challenges, rate limiting, and ToS restrictions), so **the system shall not rely on scraping or on bypassing those protections** (no CAPTCHA solving, fingerprint spoofing, or residential-proxy evasion). Data is acquired only through sanctioned channels, in this order of preference (see §4 F0): (1) G2's official API / data partnership, (2) licensed bulk data export or data-feed products, (3) manual or user-supplied exports (CSV/XLSX upload), (4) other permitted public sources. Gartner and IDC data are paywalled; the integration model is *import-based* (CSV/XLSX upload or licensed API) rather than crawling.
+- **Source independence:** Because G2 access may be limited, scoring and analysis operate on a normalized internal data model; G2 is one pluggable connector among several. The system must degrade gracefully (with lower confidence flags) if G2 data is partial or stale.
 - **Taxonomy depth:** G2 may expose 2–4 levels. The system stores the full tree and treats leaf nodes as "sub-categories".
 - **Currency/regions:** Default global/USD; region filter is a configurable extension (Phase 2).
 
@@ -89,11 +90,33 @@ Founders, product strategists, and investors lack a systematic, repeatable way t
 
 Priority: **M** = Must, **S** = Should, **C** = Could.
 
+### F0. Data Acquisition Strategy (anti-scraping aware)
+
+G2 is assumed to block or throttle automated scrapers. All ingestion requirements below (F1, F2) are satisfied through a **connector abstraction** with the following acquisition modes, each yielding the same normalized schema:
+
+| Mode | Description | Notes |
+|---|---|---|
+| A. Official API / partnership | G2 API access (e.g., vendor/data-partner program) for categories, products, ratings, review counts | Preferred; subject to quota and licence terms |
+| B. Licensed bulk export / data feed | Periodic dumps purchased or provided by G2 or an authorised reseller | Best for full-taxonomy snapshots |
+| C. Manual / assisted import | Analyst exports (CSV/XLSX/JSON) uploaded through the UI or a watched folder; schema-validated on upload | Fallback; works with no integration |
+| D. Alternative public sources | Capterra, Software Advice, TrustRadius, Gartner Peer Insights, vendor sites, Crunchbase, and similar, accessed via their own APIs/terms | Used to cross-validate and to fill G2 gaps |
+
+| ID | Requirement | Pri |
+|---|---|---|
+| F0.1 | The system shall NOT implement circumvention of bot protection (CAPTCHA solving, headless-browser fingerprint spoofing, proxy rotation to evade blocks, credential sharing). | M |
+| F0.2 | Each source connector shall declare its acquisition mode, licence status, rate limits, and permitted use; ingestion is blocked for any source lacking a recorded "permitted" status. | M |
+| F0.3 | Connectors shall honour published rate limits, back off on HTTP 403/429 or challenge pages, and **stop and alert** (not escalate evasion) when blocked. | M |
+| F0.4 | A **manual import wizard** shall accept exports in a documented template (category path, sub-category, product, vendor, rating, review count, URL, retrieval date) and map arbitrary column names. | M |
+| F0.5 | Every record shall carry provenance: source, acquisition mode, retrieval date, and licence tag. Exports/reports honour licence tags (§9). | M |
+| F0.6 | If G2 data for a sub-category is missing or older than a configurable age (default 90 days), the system shall mark it **Stale/Partial** and lower the confidence of dependent scores rather than silently using it. | M |
+| F0.7 | Multi-source reconciliation: when two sources provide ratings for the same product, the system stores both and exposes a configurable precedence (default: G2 > other), with a discrepancy flag when ratings differ by more than 0.5. | S |
+| F0.8 | An **availability dashboard** shall show per-source coverage (% of taxonomy, % of products), last successful pull, and blocked/failed attempts. | S |
+
 ### F1. Market Category Scan
 
 | ID | Requirement | Pri |
 |---|---|---|
-| F1.1 | The system shall scan the full G2 category tree and persist every category and sub-category with: G2 ID, name, slug, parent, depth, URL, description, product count, and scan timestamp. | M |
+| F1.1 | The system shall scan (via the F0 acquisition modes, not scraping) the full G2 category tree and persist every category and sub-category with: G2 ID, name, slug, parent, depth, URL, description, product count, and scan timestamp. | M |
 | F1.2 | The system shall support scheduled (default: monthly) and on-demand scans. | M |
 | F1.3 | Each scan shall create an immutable, timestamped **snapshot**; prior snapshots are retained to enable trend and diff views (new / removed / renamed categories). | M |
 | F1.4 | The system shall detect taxonomy changes between snapshots (added, removed, merged, renamed nodes) and flag them in a change log. | S |
@@ -348,7 +371,7 @@ For each white-space sub-category, the report shall display:
 
 ## 9. Compliance, Legal, and Ethical Considerations
 
-- **Terms of service:** G2, Gartner, and IDC content is licensed and protected. Prefer official APIs, partner data feeds, or licensed exports. The system must not circumvent access controls. Gartner/IDC ingestion is limited to content the organization is licensed to use.
+- **Terms of service:** G2, Gartner, and IDC content is licensed and protected, and G2 actively blocks automated scraping. Use official APIs, partner data feeds, licensed exports, or user-supplied files only. The system must not circumvent access controls or bot protection (see F0.1). Gartner/IDC ingestion is limited to content the organization is licensed to use.
 - **Attribution and redistribution:** Exports and shared reports must respect source licensing (e.g., hide paid analyst figures from unlicensed viewers).
 - **Personal data:** Review text may contain personal data; store only what is needed, avoid collecting reviewer identity, and honor retention limits.
 - **Rate limiting and politeness:** Respect source rate limits and robots directives where applicable.
@@ -384,7 +407,7 @@ For each white-space sub-category, the report shall display:
 
 | Phase | Scope |
 |---|---|
-| **MVP** | F1.1–F1.3, F1.9; F2 (all Must); F3 (rules + LLM classification, overrides); F4 core (supply gap, tiers, ranking); F5 with 5 criteria (Revenue Pool, Growth, Compliance, AI Opening, Competitive Intensity), configurable weights; CSV/XLSX export |
+| **MVP** | F0 (connector abstraction, manual import path, one alternative source), F1.1–F1.3, F1.9; F2 (all Must); F3 (rules + LLM classification, overrides); F4 core (supply gap, tiers, ranking); F5 with 5 criteria (Revenue Pool, Growth, Compliance, AI Opening, Competitive Intensity), configurable weights; CSV/XLSX export |
 | **Phase 2** | Gartner/IDC cross-referencing and review queue; remaining criteria; sensitivity analysis; scenarios; snapshot comparison; REST API |
 | **Phase 3** | Regional views, additional sources (Capterra, Forrester, Crunchbase), custom criteria, per-category weights, scheduled alerts when sub-categories enter white-space tier |
 
@@ -394,7 +417,8 @@ For each white-space sub-category, the report shall display:
 
 | # | Item | Impact / Mitigation |
 |---|---|---|
-| R1 | G2 has no fully open API for taxonomy and rankings; scraping may violate ToS | Use G2's official API / data partnership; confirm licensing before build |
+| R1 | G2 protects against scraping and has no fully open API for taxonomy and rankings; scraping would violate ToS and be unreliable | Acquire data via G2 API/partnership, licensed export, or manual import (F0); no circumvention; design the system to run on imported data so the product is viable even without live G2 access; confirm licensing before build |
+| R1a | Without G2 access, the MVP could be blocked | MVP ships with the manual import path (F0.4) and one alternative source, so analysis can proceed on user-supplied exports |
 | R2 | Gartner/IDC taxonomies are paywalled and not structurally aligned with G2 | Import-based integration; accept partial coverage; show coverage matrix |
 | R3 | Star ratings are biased (self-selection, vendor-solicited reviews, review-count disparity) | Review-count minimums; confidence scoring; show rating alongside volume |
 | R4 | Revenue pool/growth figures differ across analysts and are often unavailable at sub-category level | Store ranges and sources; bottom-up fallback with low-confidence flag |
@@ -404,7 +428,7 @@ For each white-space sub-category, the report shall display:
 
 **Open questions for the product owner**
 1. Is "above 4" strictly `> 4.0`, or `≥ 4.0`? (Spec defaults to `>`, configurable.)
-2. What is the licensing situation for G2, Gartner, and IDC data (API keys, exports, or none)?
+2. What is the licensing situation for G2, Gartner, and IDC data (API keys, exports, or none)? Given G2's anti-scraping protection, which F0 acquisition mode (API/partnership, licensed export, manual import) is realistic for the MVP?
 3. Should the Top-5 be per leaf sub-category only, or also rolled up to parent categories?
 4. Target buyer of the output (founders vs. investors) — affects narrative style and the "Ease of Entry" weighting.
 5. Is a regional or company-size lens required in the MVP?
